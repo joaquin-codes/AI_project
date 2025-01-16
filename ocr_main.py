@@ -2,6 +2,7 @@ from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import ndimage
+import os
 
 
 def load_image(filepath):
@@ -12,24 +13,17 @@ def load_image(filepath):
 
 def preprocess_image(image):
     """Apply preprocessing steps to improve image quality."""
-    # Normalizar el rango de intensidades
     image = ((image - image.min()) / (image.max() -
              image.min()) * 255).astype(np.uint8)
-
-    # Aplicar un filtro gaussiano más suave
     blurred = ndimage.gaussian_filter(image, sigma=0.5)
-
-    # Mejorar el contraste
     enhanced = np.clip((blurred - blurred.mean()) * 1.5 +
                        blurred.mean(), 0, 255).astype(np.uint8)
-
     return enhanced
 
 
 def binarize_image(image, threshold=None):
     """Convert a grayscale image to binary using Otsu's method if no threshold provided."""
     if threshold is None:
-        # Calculate Otsu's threshold
         hist, bins = np.histogram(image.flatten(), 256, [0, 256])
         total_pixels = sum(hist)
         current_max = 0
@@ -53,28 +47,21 @@ def binarize_image(image, threshold=None):
                 current_max = between
                 threshold = i
 
-    # Invertimos la binarización aquí
     binary_image = (image <= threshold).astype(np.uint8) * 255
     return binary_image
 
 
 def segment_characters(binary_image, min_size=50):
     """Segment individual characters using connected components analysis."""
-    # Ahora el texto es negro (0) y el fondo blanco (255)
     inverted = binary_image == 0
-
-    # Label connected components
     labeled_array, num_features = ndimage.label(inverted)
-
-    # Find properties of each connected component
     objects = ndimage.find_objects(labeled_array)
     bounding_boxes = []
 
-    for i, slice_obj in enumerate(objects):
+    for slice_obj in objects:
         if slice_obj is not None:
-            # Get component size
             component = inverted[slice_obj]
-            if np.sum(component) > min_size:  # Filtrar componentes pequeños (ruido)
+            if np.sum(component) > min_size:
                 y_slice, x_slice = slice_obj
                 top = y_slice.start
                 bottom = y_slice.stop
@@ -89,22 +76,16 @@ def extract_character(binary_image, bounding_box, padding=2):
     """Extract character from image with optional padding."""
     top, bottom, left, right = bounding_box
     height, width = binary_image.shape
-
-    # Add padding while keeping within image bounds
     top = max(0, top - padding)
     bottom = min(height, bottom + padding)
     left = max(0, left - padding)
     right = min(width, right + padding)
-
     return binary_image[top:bottom, left:right]
 
 
-def normalize_character(char_image, target_size=(28, 28)):
+def normalize_character(char_image, target_size=(32, 32)):
     """Normalize character size and centering."""
-    # Create a blank target image (white background)
     normalized = np.full(target_size, 255, dtype=np.uint8)
-
-    # Resize character while maintaining aspect ratio
     aspect = char_image.shape[1] / char_image.shape[0]
     if aspect > 1:
         new_width = target_size[1]
@@ -115,8 +96,6 @@ def normalize_character(char_image, target_size=(28, 28)):
 
     resized = np.array(Image.fromarray(
         char_image).resize((new_width, new_height)))
-
-    # Center the character in the target image
     y_offset = (target_size[0] - new_height) // 2
     x_offset = (target_size[1] - new_width) // 2
 
@@ -145,33 +124,57 @@ def display_characters(binary_image, bounding_boxes):
     plt.show()
 
 
-if __name__ == "__main__":
-    # Test the improved processing pipeline
-    image_path = "AI_project/test_image.jpg"
+def load_templates(template_folder):
+    """Load character templates from a folder, including subfolders."""
+    templates = {}
+    for root, _, files in os.walk(template_folder):
+        for file_name in files:
+            if file_name.endswith(".png") or file_name.endswith(".jpg"):
+                char = os.path.splitext(file_name)[0]
+                image = Image.open(os.path.join(root, file_name)).convert('L')
+                image = np.array(image)
+                templates[char] = normalize_character(
+                    image, target_size=(32, 32))
+    return templates
 
-    # Load and preprocess
+
+def recognize_character(char_image, templates):
+    """Recognize a character by comparing it to templates."""
+    best_match = None
+    best_score = float('inf')
+
+    for char, template in templates.items():
+        resized_char = normalize_character(char_image, target_size=(32, 32))
+        score = np.sum((resized_char - template) ** 2)
+
+        if score < best_score:
+            best_score = score
+            best_match = char
+
+    return best_match
+
+
+if __name__ == "__main__":
+    image_path = "AI_project/test_image.jpg"
+    template_folder = "AI_project/templates"
+
     gray_image = load_image(image_path)
     preprocessed = preprocess_image(gray_image)
     binary_image = binarize_image(preprocessed)
 
-    # Find and display characters
     bounding_boxes = segment_characters(binary_image)
     print(f"Found {len(bounding_boxes)} characters")
 
-    # Display results
-    plt.figure(figsize=(12, 4))
-    plt.subplot(131)
-    plt.imshow(gray_image, cmap='gray')
-    plt.title('Original')
+    templates = load_templates(template_folder)
+    print(f"Loaded {len(templates)} templates for recognition.")
 
-    plt.subplot(132)
-    plt.imshow(preprocessed, cmap='gray')
-    plt.title('Preprocessed')
+    recognized_text = ""
+    for bbox in bounding_boxes:
+        char_image = extract_character(binary_image, bbox)
+        normalized_char = normalize_character(char_image, target_size=(32, 32))
+        recognized_char = recognize_character(normalized_char, templates)
+        recognized_text += recognized_char if recognized_char else "?"
 
-    plt.subplot(133)
-    plt.imshow(binary_image, cmap='gray')
-    plt.title('Binarized')
-    plt.show()
+    print(f"Recognized text: {recognized_text}")
 
-    # Display individual characters
     display_characters(binary_image, bounding_boxes)
