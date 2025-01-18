@@ -4,6 +4,7 @@ import os
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from tkinter import ttk
 from sklearn.metrics import pairwise_distances_argmin_min
 
 # Función para detectar las regiones de texto
@@ -42,7 +43,6 @@ def load_templates_from_folders(template_folders):
                     img = Image.open(img_path).convert('L')
                     img = img.resize((32, 32))
                     letter = img_name[0]
-                    print(f"Cargando {img_name} como {letter_case}")
                     if letter_case == "Mayusculas":
                         templates["mayusculas"].append((letter, np.array(img)))
                     elif letter_case == "minusculas":
@@ -95,7 +95,7 @@ def recognize_character(image, templates):
             best_match = letter
             letter_case = "minusculas"
 
-    return best_match, letter_case
+    return best_match, letter_case, best_score
 
 # Función principal para cargar imagen y mostrar resultados
 
@@ -105,15 +105,19 @@ def run_ocr(image_path, templates):
     print("Bounding boxes detected:", bounding_boxes)
 
     recognized_chars = []  # Lista para almacenar los caracteres reconocidos
+    best_score = None
 
     for (x, y, w, h) in bounding_boxes:
         char_image = thresh[y:y + h, x:x + w]  # Usamos la imagen binarizada
         char_image_resized = cv2.resize(char_image, (32, 32))
 
         # Reconocer el carácter
-        recognized_char, letter_case = recognize_character(
+        recognized_char, letter_case, score = recognize_character(
             char_image_resized, templates)
         recognized_chars.append((recognized_char, letter_case))
+
+        if best_score is None or score < best_score:
+            best_score = score
 
         # Dibujar un cuadrado alrededor del área del caracter en la imagen binarizada
         cv2.rectangle(thresh, (x, y), (x + w, y + h),
@@ -127,7 +131,7 @@ def run_ocr(image_path, templates):
 
     resized_image = cv2.resize(thresh, dim, interpolation=cv2.INTER_AREA)
 
-    return resized_image, recognized_chars
+    return resized_image, recognized_chars, best_score
 
 # Función para abrir el diálogo de selección de archivo
 
@@ -147,7 +151,8 @@ def open_file_dialog():
 
 def update_ui(image_path):
     templates = load_templates_from_folders(['Templates/1', 'Templates/2'])
-    resized_image, recognized_chars = run_ocr(image_path, templates)
+    resized_image, recognized_chars, best_score = run_ocr(
+        image_path, templates)
 
     # Convertir la imagen a formato que Tkinter pueda mostrar
     image_pil = Image.fromarray(resized_image)
@@ -159,32 +164,45 @@ def update_ui(image_path):
 
     result_label.config(text=f"Caracteres reconocidos: {', '.join(
         [f'{char} ({case})' for char, case in recognized_chars])}")
+    score_label.config(text=f"Mejor score: {best_score:.4f}")
 
 
 # Crear la ventana principal
 root = tk.Tk()
-root.title("OCR Simple UI")
+root.title("OCR Mejorado")
+
+# Aumentar tamaño de la ventana
+root.geometry("800x600")
+
+# Configurar el estilo moderno
+style = ttk.Style()
+style.configure("TButton", font=("Arial", 12), padding=10)
+style.configure("TLabel", font=("Arial", 12), padding=5)
 
 # Configurar la interfaz
-frame = tk.Frame(root)
-frame.pack(pady=20)
+frame = ttk.Frame(root, padding=20)
+frame.pack(fill=tk.BOTH, expand=True)
 
-instruction_label = tk.Label(frame, text="Hey there, please select your image")
-instruction_label.pack()
+instruction_label = ttk.Label(
+    frame, text="Selecciona una imagen para reconocer los caracteres")
+instruction_label.pack(pady=20)
 
 # Botón para seleccionar la imagen
-select_button = tk.Button(frame, text="Select Image",
-                          command=lambda: update_ui(open_file_dialog()))
-select_button.pack()
+select_button = ttk.Button(
+    frame, text="Seleccionar Imagen", command=lambda: update_ui(open_file_dialog()))
+select_button.pack(pady=10)
 
-image_label = tk.Label(frame, text="")
+image_label = ttk.Label(frame, text="")
 image_label.pack()
 
-img_label = tk.Label(frame)
+img_label = ttk.Label(frame)
 img_label.pack(pady=20)
 
-result_label = tk.Label(frame, text="")
-result_label.pack()
+result_label = ttk.Label(frame, text="")
+result_label.pack(pady=10)
+
+score_label = ttk.Label(frame, text="Mejor score: N/A")
+score_label.pack(pady=10)
 
 # Iniciar la interfaz
 root.mainloop()
