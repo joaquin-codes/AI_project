@@ -1,7 +1,9 @@
 import cv2
 import numpy as np
 import os
-from PIL import Image
+from PIL import Image, ImageTk
+import tkinter as tk
+from tkinter import filedialog, messagebox
 from sklearn.metrics import pairwise_distances_argmin_min
 
 # Función para detectar las regiones de texto
@@ -74,25 +76,13 @@ def recognize_character(image, templates, letter_case):
 
     return best_match
 
-# Función principal
+# Función principal para cargar imagen y mostrar resultados
 
 
-def main():
-    test_image_path = "test_image.jpg"  # Ruta de la imagen de prueba
-    bounding_boxes, thresh = detect_text_regions(test_image_path)
+def run_ocr(image_path, templates):
+    bounding_boxes, thresh = detect_text_regions(image_path)
     print("Bounding boxes detected:", bounding_boxes)
 
-    # Cargar plantillas desde las carpetas
-    # Asegúrate de que estas rutas sean correctas
-    template_folders = ['Templates/1', 'Templates/2']
-    templates = load_templates_from_folders(template_folders)
-    print(f"Plantillas cargadas. Mayusculas: {
-          [template[0] for template in templates['mayusculas']]}")
-    print(f"Minusculas: {[template[0]
-          for template in templates['minusculas']]}")
-    print(f"Numeros: {[template[0] for template in templates['numeros']]}")
-
-    # Procesar la imagen de prueba y reconocer caracteres
     for (x, y, w, h) in bounding_boxes:
         char_image = thresh[y:y + h, x:x + w]  # Usamos la imagen binarizada
         char_image_resized = cv2.resize(char_image, (32, 32))
@@ -121,11 +111,63 @@ def main():
 
     resized_image = cv2.resize(thresh, dim, interpolation=cv2.INTER_AREA)
 
-    # Mostrar la imagen binarizada redimensionada con los cuadros
-    cv2.imshow('Image with Bounding Boxes (Binarized)', resized_image)
-    cv2.waitKey(0)  # Espera hasta que se presione una tecla
-    cv2.destroyAllWindows()
+    return resized_image, recognized_char
+
+# Función para abrir el diálogo de selección de archivo
 
 
-if __name__ == "__main__":
-    main()
+def open_file_dialog():
+    file_path = filedialog.askopenfilename(
+        filetypes=[("Image files", "*.jpg *.png *.jpeg")])
+    if file_path:
+        image_label.config(
+            text=f"Imagen {os.path.basename(file_path)} cargada exitosamente")
+        return file_path
+    else:
+        return None
+
+# Función para actualizar la interfaz con los resultados
+
+
+def update_ui(image_path):
+    templates = load_templates_from_folders(['Templates/1', 'Templates/2'])
+    resized_image, recognized_char = run_ocr(image_path, templates)
+
+    # Convertir la imagen a formato que Tkinter pueda mostrar
+    image_pil = Image.fromarray(resized_image)
+    image_tk = ImageTk.PhotoImage(image_pil)
+
+    # Mostrar la imagen en el UI
+    img_label.config(image=image_tk)
+    img_label.image = image_tk  # Necesario para evitar que la imagen se pierda
+
+    result_label.config(text=f"Caracter reconocido: {recognized_char}")
+
+
+# Crear la ventana principal
+root = tk.Tk()
+root.title("OCR Simple UI")
+
+# Configurar la interfaz
+frame = tk.Frame(root)
+frame.pack(pady=20)
+
+instruction_label = tk.Label(frame, text="Hey there, please select your image")
+instruction_label.pack()
+
+# Botón para seleccionar la imagen
+select_button = tk.Button(frame, text="Select Image",
+                          command=lambda: update_ui(open_file_dialog()))
+select_button.pack()
+
+image_label = tk.Label(frame, text="")
+image_label.pack()
+
+img_label = tk.Label(frame)
+img_label.pack(pady=20)
+
+result_label = tk.Label(frame, text="")
+result_label.pack()
+
+# Iniciar la interfaz
+root.mainloop()
